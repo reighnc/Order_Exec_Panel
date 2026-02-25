@@ -1,0 +1,37 @@
+# Fill this file, then run:
+#   .\.venv\Scripts\python.exe .\order_place_test.py
+#
+# CLI values override file values if both are provided.
+#
+# instrument: NIFTY / BANKNIFTY / SENSEX
+instrument = BANKNIFTY
+#
+# expiry: use value from data/expiries_*.txt
+# accepted formats: 24-FEB-2026 or 24FEB26
+expiry = 24-FEB-2026
+#
+# strike: exact strike integer
+strike = 61200
+#
+# opt: CE or PE
+opt = CE
+#
+# side: B (BUY) or S (SELL)
+side = B
+#
+# ordertype: MKT or LMT
+ordertype = LMT
+#
+# lots: number of lots to place; script auto-splits by freeze_lots in config.ini
+lots = 20
+#
+# For LMT: both price and trigger are mandatory and must be > 0
+# For MKT: leave as 0
+price = 1
+trigger = 1
+#
+# product: C/M/H (default M if left empty)
+product = M
+#
+# remarks tag for order audit
+remarks = test_order

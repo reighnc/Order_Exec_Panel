@@ -1,0 +1,17 @@
+# Local secrets and session data
+creds.txt
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Local runtime logs
+logs/
+
+# Local virtual environment
+.venv/
+
+# Generated market/master files
+data/master/
+data/expiries_*.txt
+data/expiries_review.json

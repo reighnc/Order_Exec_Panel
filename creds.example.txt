@@ -1,0 +1,9 @@
+{
+  "username": "YOUR_CLIENT_ID",
+  "password": "YOUR_PASSWORD",
+  "api_key": "YOUR_API_KEY",
+  "api_secret": "YOUR_API_SECRET",
+  "2fa": "YOUR_2FA_SECRET_OR_OTP",
+  "session_token": "",
+  "session_generated_at": ""
+}
