@@ -2,6 +2,7 @@ import configparser
 import csv
 import re
 import tkinter as tk
+import tkinter.font as tkfont
 from datetime import datetime
 from pathlib import Path
 from tkinter import messagebox, ttk
@@ -29,6 +30,13 @@ ORDER_EXCHANGE = {
     "MIDCPNIFTY": "NFO",
     "SENSEX": "BFO",
 }
+
+LOTS_MIN = 1
+LOTS_MAX = 100000000
+LIMIT_PRICE_MIN = 0.0
+LIMIT_PRICE_MAX = 100000000.0
+# Customizable default step for Limit Price spin buttons / Up-Down keys.
+LIMIT_PRICE_STEP = 0.05
 
 
 class OrderRow:
@@ -96,7 +104,7 @@ class OrderRow:
         self.option_var = tk.StringVar(value="CE")
         self.lots_var = tk.StringVar(value="1")
         self.limit_price_var = tk.StringVar(value="")
-        self.qty_hint_var = tk.StringVar(value="Lots (Qty: 0)")
+        self.qty_hint_var = tk.StringVar(value="Qty (Lots: 0)")
         self.freeze_hint_var = tk.StringVar()
         self.status_var = tk.StringVar(value="Ready")
 
@@ -141,14 +149,42 @@ class OrderRow:
 
         self.qty_label = tk.Label(container, textvariable=self.qty_hint_var, bd=0, relief="flat", highlightthickness=0)
         self.qty_label.grid(row=0, column=6, padx=3, pady=1, sticky="w")
+        self.qty_label.configure(width=14, anchor="w")
         self._text_labels.append(self.qty_label)
-        self.lots = ttk.Entry(container, width=8, textvariable=self.lots_var)
-        self.lots.grid(row=1, column=6, padx=3, pady=2, sticky="ew")
+        self.lots = tk.Spinbox(
+            container,
+            from_=LOTS_MIN,
+            to=LOTS_MAX,
+            increment=1,
+            width=8,
+            textvariable=self.lots_var,
+            relief="solid",
+            bd=1,
+            state="normal",
+            command=lambda: self.on_lots_change(self),
+        )
+        self.lots.grid(row=1, column=6, padx=3, pady=2, sticky="w")
+        self.lots.configure(bg="white")
         self.lots.bind("<KeyRelease>", lambda _e: self.on_lots_change(self))
+        self.lots.bind("<Up>", lambda _e: self._spin_up(self.lots))
+        self.lots.bind("<Down>", lambda _e: self._spin_down(self.lots))
 
         self._add_label(7, "Limit Price")
-        self.limit_price = tk.Entry(container, width=12, textvariable=self.limit_price_var, relief="solid", bd=1)
-        self.limit_price.grid(row=1, column=7, padx=3, pady=2, sticky="ew")
+        self.limit_price = tk.Spinbox(
+            container,
+            from_=LIMIT_PRICE_MIN,
+            to=LIMIT_PRICE_MAX,
+            increment=LIMIT_PRICE_STEP,
+            width=10,
+            textvariable=self.limit_price_var,
+            relief="solid",
+            bd=1,
+            state="normal",
+            bg="white",
+        )
+        self.limit_price.grid(row=1, column=7, padx=3, pady=2, sticky="w")
+        self.limit_price.bind("<Up>", lambda _e: self._spin_up(self.limit_price))
+        self.limit_price.bind("<Down>", lambda _e: self._spin_down(self.limit_price))
 
         ttk.Button(container, text=primary_action, command=lambda: self.on_primary(self)).grid(
             row=1, column=8, padx=3, pady=2, sticky="ew"
@@ -161,6 +197,7 @@ class OrderRow:
         self.freeze_label.grid(row=2, column=0, columnspan=6, sticky="w", padx=3)
         self.status_label = tk.Label(container, textvariable=self.status_var, bd=0, relief="flat", highlightthickness=0)
         self.status_label.grid(row=2, column=6, columnspan=4, sticky="e", padx=3)
+        self.status_label.configure(width=30, anchor="e")
         self._text_labels.extend([self.freeze_label, self.status_label])
         self._all_widgets = [
             self.instrument,
@@ -184,6 +221,35 @@ class OrderRow:
         event.widget.event_generate("<Down>")
         return "break"
 
+    def _spin_up(self, spinbox: tk.Spinbox):
+        if spinbox == self.lots:
+            lot_size = max(int(float(spinbox.cget("increment"))), 1)
+            raw = re.sub(r"[^0-9]", "", self.lots_var.get().strip())
+            qty = int(raw) if raw else lot_size
+            nearest_lots = max(1, int((qty / lot_size) + 0.5))
+            next_qty = (nearest_lots + 1) * lot_size
+            self.lots_var.set(str(next_qty))
+            self.on_lots_change(self)
+            return "break"
+        spinbox.invoke("buttonup")
+        return "break"
+
+    def _spin_down(self, spinbox: tk.Spinbox):
+        if spinbox == self.lots:
+            lot_size = max(int(float(spinbox.cget("increment"))), 1)
+            raw = re.sub(r"[^0-9]", "", self.lots_var.get().strip())
+            qty = int(raw) if raw else lot_size
+            nearest_lots = max(1, int((qty / lot_size) + 0.5))
+            if qty % lot_size == 0:
+                target_lots = max(1, nearest_lots - 1)
+            else:
+                target_lots = nearest_lots
+            self.lots_var.set(str(target_lots * lot_size))
+            self.on_lots_change(self)
+            return "break"
+        spinbox.invoke("buttondown")
+        return "break"
+
     def set_active(self, active: bool) -> None:
         bg = self.active_bg if active else self.default_bg
         self.container.configure(bg=bg)
@@ -191,6 +257,8 @@ class OrderRow:
         self.header_bar.configure(bg=self.header_bg)
         self.header_label.configure(bg=self.header_bg, fg="black")
         for widget in self._all_widgets:
+            if widget in {self.lots, self.limit_price}:
+                continue
             try:
                 widget.configure(background=bg)
             except Exception:
@@ -201,11 +269,12 @@ class OrderRow:
                 pass
         for lbl in self._text_labels:
             lbl.configure(bg=bg, fg="black")
+        self.lots.configure(bg="white")
 
     def update_freeze_hint(self) -> None:
         instrument = self.instrument_var.get()
         freeze = self.freeze_lots.get(instrument, 0)
-        self.freeze_hint_var.set(f"Freeze split: {freeze} lots per order")
+        self.freeze_hint_var.set(f"Freeze split: Qty 0 (Lots: {freeze})")
 
     def toggle_limit_price(self) -> None:
         is_limit = self.ordertype_var.get() == "LMT"
@@ -271,6 +340,8 @@ class FlattradeOrderApp:
         self._initialize_row(self.row2, "SENSEX")
         self._bind_row_focus(self.row1)
         self._bind_row_focus(self.row2)
+        self._bind_numeric_handlers(self.row1)
+        self._bind_numeric_handlers(self.row2)
         self._set_active_row(self.row1)
 
         # Footer text intentionally removed per UI preference.
@@ -417,7 +488,106 @@ class FlattradeOrderApp:
         self._update_qty_hint(row)
 
     def _lots_changed(self, row: OrderRow) -> None:
+        self._normalize_qty_input(row, finalize=False)
         self._update_qty_hint(row)
+
+    def _bind_numeric_handlers(self, row: OrderRow) -> None:
+        row.lots.bind("<FocusOut>", lambda _e, r=row: self._on_lots_focus_out(r), add="+")
+        row.limit_price.bind("<KeyRelease>", lambda _e, r=row: self._limit_price_changed(r, finalize=False), add="+")
+        row.limit_price.bind("<FocusOut>", lambda _e, r=row: self._limit_price_changed(r, finalize=True), add="+")
+
+    def _on_lots_focus_out(self, row: OrderRow) -> None:
+        self._normalize_qty_input(row, finalize=True)
+        self._update_qty_hint(row)
+
+    def _lot_size_for_row(self, row: OrderRow) -> int:
+        contract = self._selected_contract(row, autocorrect=False)
+        if contract:
+            return int(float(contract.get("LotSize", "0") or "0"))
+        instrument = row.instrument_var.get()
+        expiry = row.expiry_var.get()
+        contracts = self.cache[instrument]["contracts_by_expiry"].get(expiry, {})
+        if contracts:
+            first_contract = next(iter(contracts.values()))
+            return int(float(first_contract.get("LotSize", "0") or "0"))
+        return 0
+
+    def _sync_qty_spinbox_step(self, row: OrderRow, lot_size: int) -> None:
+        step = max(lot_size, 1)
+        row.lots.configure(from_=step, increment=step)
+
+    def _nearest_lots_from_qty(self, qty: int, lot_size: int) -> int:
+        if qty <= 0:
+            return 0
+        if lot_size <= 0:
+            return qty
+        return max(1, int((qty / lot_size) + 0.5))
+
+    def _normalize_qty_input(self, row: OrderRow, finalize: bool) -> Optional[int]:
+        lot_size = self._lot_size_for_row(row)
+        self._sync_qty_spinbox_step(row, lot_size)
+        raw = row.lots_var.get().strip()
+        if not raw:
+            if finalize:
+                default_qty = max(lot_size, LOTS_MIN)
+                row.lots_var.set(str(default_qty))
+                return self._nearest_lots_from_qty(default_qty, lot_size)
+            return None
+
+        digits = re.sub(r"[^0-9]", "", raw)
+        if not digits:
+            if finalize:
+                default_qty = max(lot_size, LOTS_MIN)
+                row.lots_var.set(str(default_qty))
+                return self._nearest_lots_from_qty(default_qty, lot_size)
+            row.lots_var.set("")
+            return None
+
+        qty = int(digits)
+        qty = max(LOTS_MIN, min(qty, LOTS_MAX))
+        lots = self._nearest_lots_from_qty(qty, lot_size)
+        normalized_qty = lots * lot_size if lot_size > 0 else qty
+        if finalize:
+            row.lots_var.set(str(normalized_qty))
+        elif digits != raw:
+            row.lots_var.set(digits)
+        return lots
+
+    def _limit_price_changed(self, row: OrderRow, finalize: bool) -> Optional[float]:
+        raw = row.limit_price_var.get().strip()
+        if not raw:
+            return None
+
+        # Keep only digits and one decimal point.
+        cleaned_chars = []
+        seen_dot = False
+        for ch in raw:
+            if ch.isdigit():
+                cleaned_chars.append(ch)
+            elif ch == "." and not seen_dot:
+                cleaned_chars.append(ch)
+                seen_dot = True
+        cleaned = "".join(cleaned_chars)
+
+        if cleaned != raw:
+            row.limit_price_var.set(cleaned)
+        if cleaned in {"", "."}:
+            if finalize:
+                row.limit_price_var.set("")
+            return None
+
+        try:
+            value = float(cleaned)
+        except ValueError:
+            if finalize:
+                row.limit_price_var.set("")
+            return None
+
+        if finalize or value < LIMIT_PRICE_MIN or value > LIMIT_PRICE_MAX:
+            value = max(LIMIT_PRICE_MIN, min(value, LIMIT_PRICE_MAX))
+            normalized = f"{value:.2f}".rstrip("0").rstrip(".")
+            row.limit_price_var.set(normalized)
+        return value
 
     def _refresh_strikes_for_row(self, row: OrderRow, refresh_spot: bool) -> None:
         instrument = row.instrument_var.get()
@@ -435,6 +605,7 @@ class FlattradeOrderApp:
         row.strike_var.set("" if atm is None else str(atm))
         self._snap_strike_to_nearest(row, commit=True)
         row.status_var.set(f"ATM near {cache['spot_ltp'] or 'N/A'} | shown {len(strike_window)} strikes")
+        self._normalize_qty_input(row, finalize=True)
         self._update_qty_hint(row)
 
     def _extract_strike_number(self, text: str) -> Optional[int]:
@@ -466,29 +637,30 @@ class FlattradeOrderApp:
         return self.cache[instrument]["contracts_by_expiry"].get(expiry, {}).get(key)
 
     def _update_qty_hint(self, row: OrderRow) -> None:
-        contract = self._selected_contract(row, autocorrect=False)
-        lot_size = int(float(contract.get("LotSize"))) if contract else 0
-        try:
-            lots = int(row.lots_var.get())
-            lots = max(lots, 0)
-        except ValueError:
-            lots = 0
-        qty_units = lots * lot_size
-        row.qty_hint_var.set(f"Lots (Qty: {qty_units})")
+        lot_size = self._lot_size_for_row(row)
+        self._sync_qty_spinbox_step(row, lot_size)
+        raw = re.sub(r"[^0-9]", "", row.lots_var.get().strip())
+        qty_units = int(raw) if raw else 0
+        lots = self._nearest_lots_from_qty(qty_units, lot_size)
+        row.qty_hint_var.set(f"Qty (Lots: {lots})")
+        freeze_lots = self.freeze_lots.get(row.instrument_var.get(), 0)
+        freeze_qty = freeze_lots * lot_size if lot_size > 0 else 0
+        row.freeze_hint_var.set(f"Freeze split: Qty {freeze_qty} (Lots: {freeze_lots})")
 
     def _validate_row(self, row: OrderRow) -> Optional[str]:
         if not row.expiry_var.get():
             return "Select expiry."
         if not row.strike_var.get().strip():
             return "Select or type strike."
-        try:
-            lots = int(row.lots_var.get())
-            if lots <= 0:
-                return "Lots must be > 0."
-        except ValueError:
-            return "Lots must be an integer."
-        if row.ordertype_var.get() == "LMT" and not row.limit_price_var.get().strip():
-            return "Limit Price is required for LMT."
+        lots = self._normalize_qty_input(row, finalize=True)
+        if lots is None:
+            return f"Qty must be an integer between {LOTS_MIN} and {LOTS_MAX}."
+        if row.ordertype_var.get() == "LMT":
+            limit_price = self._limit_price_changed(row, finalize=True)
+            if limit_price is None:
+                return "Limit Price is required for LMT."
+            if not (LIMIT_PRICE_MIN <= limit_price <= LIMIT_PRICE_MAX):
+                return f"Limit Price must be between {LIMIT_PRICE_MIN:g} and {LIMIT_PRICE_MAX:g}."
         return None
 
     def _confirm_action(self, row: OrderRow, action: str) -> bool:
@@ -496,17 +668,63 @@ class FlattradeOrderApp:
         expiry = row.expiry_var.get()
         strike = row.strike_var.get().strip()
         opt = row.option_var.get().upper()
-        lots = row.lots_var.get().strip()
-        msg = (
-            f"Confirm {action}?\n\n"
-            f"Index: {instrument}\n"
-            f"Expiry: {expiry}\n"
-            f"Strike: {strike}{opt}\n"
-            f"Lots: {lots}"
-        )
-        if action == "CANCEL":
-            msg += "\n\nThis will cancel all open orders for the selected strike symbol."
-        return messagebox.askyesno("Confirm Order Action", msg)
+        lot_size = self._lot_size_for_row(row)
+        lots = self._normalize_qty_input(row, finalize=True) or 0
+        qty_text = row.lots_var.get().strip()
+        lines = [
+            f"Index: {instrument}",
+            f"Expiry: {expiry}",
+            f"Strike: {strike}{opt}",
+            f"Qty: {qty_text} (Lots: {lots})",
+        ]
+        return self._show_confirm_dialog(lines)
+
+    def _show_confirm_dialog(self, lines: List[str]) -> bool:
+        result = {"confirmed": False}
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Confirm Order")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        body = ttk.Frame(dialog, padding=12)
+        body.grid(row=0, column=0, sticky="nsew")
+
+        msg_font = tkfont.nametofont("TkDefaultFont").copy()
+        msg_font.configure(size=11)
+
+        for idx, line in enumerate(lines):
+            tk.Label(body, text=line, font=msg_font, anchor="w", justify="left").grid(
+                row=idx, column=0, sticky="w", pady=(0, 2)
+            )
+
+        button_row = ttk.Frame(body)
+        button_row.grid(row=len(lines), column=0, pady=(8, 0), sticky="ew")
+        button_row.columnconfigure(0, weight=1)
+        button_row.columnconfigure(1, weight=1)
+
+        def _finish(value: bool) -> None:
+            result["confirmed"] = value
+            dialog.destroy()
+
+        yes_btn = ttk.Button(button_row, text="Yes", command=lambda: _finish(True))
+        no_btn = ttk.Button(button_row, text="No", command=lambda: _finish(False))
+        yes_btn.grid(row=0, column=0, padx=(0, 6), sticky="ew")
+        no_btn.grid(row=0, column=1, padx=(6, 0), sticky="ew")
+
+        dialog.protocol("WM_DELETE_WINDOW", lambda: _finish(False))
+        dialog.bind("<Return>", lambda _e: _finish(True))
+        dialog.bind("<Escape>", lambda _e: _finish(False))
+        yes_btn.focus_set()
+
+        dialog.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() - dialog.winfo_reqwidth()) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - dialog.winfo_reqheight()) // 2
+        dialog.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+
+        self.root.wait_window(dialog)
+        return bool(result["confirmed"])
 
     def _place_for_row(self, row: OrderRow, side: str) -> None:
         action = "BUY" if side == "B" else "SELL"
@@ -525,12 +743,14 @@ class FlattradeOrderApp:
 
         instrument = row.instrument_var.get()
         ordertype = row.ordertype_var.get()
-        lots = int(row.lots_var.get())
+        lots = self._normalize_qty_input(row, finalize=True) or LOTS_MIN
         chunks = self._split_lots(instrument, lots)
         exchange = ORDER_EXCHANGE[instrument]
         tradingsymbol = contract["TradingSymbol"]
         lot_size = int(float(contract["LotSize"]))
-        limit_price = float(row.limit_price_var.get()) if ordertype == "LMT" else 0.0
+        limit_price = self._limit_price_changed(row, finalize=True) if ordertype == "LMT" else 0.0
+        if limit_price is None:
+            limit_price = 0.0
 
         buy_sell = _enum_or_wrapped(side, BuyorSell, self.expects_enum)
         product = _enum_or_wrapped("M", ProductType, self.expects_enum)
