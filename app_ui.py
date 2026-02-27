@@ -1,5 +1,6 @@
 import configparser
 import csv
+import json
 import re
 import tkinter as tk
 import tkinter.font as tkfont
@@ -186,12 +187,20 @@ class OrderRow:
         self.limit_price.bind("<Up>", lambda _e: self._spin_up(self.limit_price))
         self.limit_price.bind("<Down>", lambda _e: self._spin_down(self.limit_price))
 
-        ttk.Button(container, text=primary_action, command=lambda: self.on_primary(self)).grid(
-            row=1, column=8, padx=3, pady=2, sticky="ew"
+        self.primary_button = ttk.Button(
+            container,
+            text=primary_action,
+            command=lambda: self.on_primary(self),
+            style="Panel.TButton",
         )
-        ttk.Button(container, text="CANCEL", command=lambda: self.on_cancel(self)).grid(
-            row=1, column=9, padx=3, pady=2, sticky="ew"
+        self.primary_button.grid(row=1, column=8, padx=3, pady=2, sticky="ew")
+        self.cancel_button = ttk.Button(
+            container,
+            text="CANCEL",
+            command=lambda: self.on_cancel(self),
+            style="Panel.TButton",
         )
+        self.cancel_button.grid(row=1, column=9, padx=3, pady=2, sticky="ew")
 
         self.freeze_label = tk.Label(container, textvariable=self.freeze_hint_var, bd=0, relief="flat", highlightthickness=0)
         self.freeze_label.grid(row=2, column=0, columnspan=6, sticky="w", padx=3)
@@ -290,6 +299,7 @@ class FlattradeOrderApp:
         self.root = root
         self.root.title("ORDER PANEL")
         self.root.resizable(False, False)
+        self._setup_button_styles()
         self.base_dir = Path(__file__).resolve().parent
         self.logger = setup_logger(self.base_dir)
         self.freeze_lots = self._load_freeze_lots(self.base_dir / "config.ini")
@@ -353,6 +363,16 @@ class FlattradeOrderApp:
         width = wrapper.winfo_reqwidth() + 4
         height = wrapper.winfo_reqheight() + 4
         self.root.geometry(f"{width}x{height}")
+
+    def _setup_button_styles(self) -> None:
+        style = ttk.Style(self.root)
+        style.configure("Panel.TButton", padding=(12, 3))
+        style.map(
+            "Panel.TButton",
+            background=[("focus", "#ffd54f"), ("active", "#ffe082")],
+            foreground=[("focus", "#000000"), ("active", "#000000")],
+            relief=[("focus", "solid"), ("pressed", "sunken"), ("!pressed", "raised")],
+        )
 
     def _load_freeze_lots(self, path: Path) -> Dict[str, int]:
         parser = configparser.ConfigParser()
@@ -663,20 +683,24 @@ class FlattradeOrderApp:
                 return f"Limit Price must be between {LIMIT_PRICE_MIN:g} and {LIMIT_PRICE_MAX:g}."
         return None
 
+    def _as_log_text(self, payload) -> str:
+        try:
+            return json.dumps(payload, ensure_ascii=True, default=str)
+        except Exception:
+            return repr(payload)
+
     def _confirm_action(self, row: OrderRow, action: str) -> bool:
         instrument = row.instrument_var.get()
         expiry = row.expiry_var.get()
         strike = row.strike_var.get().strip()
         opt = row.option_var.get().upper()
-        lot_size = self._lot_size_for_row(row)
         lots = self._normalize_qty_input(row, finalize=True) or 0
         qty_text = row.lots_var.get().strip()
-        lines = [
-            f"Index: {instrument}",
-            f"Expiry: {expiry}",
-            f"Strike: {strike}{opt}",
-            f"Qty: {qty_text} (Lots: {lots})",
-        ]
+        one_line = f"{instrument}, {expiry}, {strike}{opt}, {qty_text}(Lots:{lots})"
+        if row.ordertype_var.get() == "LMT":
+            limit_price = (row.limit_price_var.get() or "").strip()
+            one_line = f"{one_line} @ {limit_price}"
+        lines = [one_line]
         return self._show_confirm_dialog(lines)
 
     def _show_confirm_dialog(self, lines: List[str]) -> bool:
@@ -708,15 +732,56 @@ class FlattradeOrderApp:
             result["confirmed"] = value
             dialog.destroy()
 
-        yes_btn = ttk.Button(button_row, text="Yes", command=lambda: _finish(True))
-        no_btn = ttk.Button(button_row, text="No", command=lambda: _finish(False))
-        yes_btn.grid(row=0, column=0, padx=(0, 6), sticky="ew")
-        no_btn.grid(row=0, column=1, padx=(6, 0), sticky="ew")
+        no_btn = tk.Button(
+            button_row,
+            text="No",
+            width=10,
+            command=lambda: _finish(False),
+            relief="raised",
+            bd=1,
+            highlightthickness=2,
+            highlightbackground="#c0c0c0",
+            highlightcolor="#c0c0c0",
+        )
+        yes_btn = tk.Button(
+            button_row,
+            text="Yes",
+            width=10,
+            command=lambda: _finish(True),
+            relief="raised",
+            bd=1,
+            highlightthickness=2,
+            highlightbackground="#ff8f00",
+            highlightcolor="#ff8f00",
+            default="active",
+        )
+        no_btn.grid(row=0, column=0, padx=(0, 6), sticky="ew")
+        yes_btn.grid(row=0, column=1, padx=(6, 0), sticky="ew")
+
+        def _focus_yes() -> None:
+            yes_btn.focus_set()
+            yes_btn.configure(highlightbackground="#ff8f00", highlightcolor="#ff8f00")
+            no_btn.configure(highlightbackground="#c0c0c0", highlightcolor="#c0c0c0")
+
+        def _focus_no() -> None:
+            no_btn.focus_set()
+            no_btn.configure(highlightbackground="#ff8f00", highlightcolor="#ff8f00")
+            yes_btn.configure(highlightbackground="#c0c0c0", highlightcolor="#c0c0c0")
+
+        yes_btn.bind("<FocusIn>", lambda _e: _focus_yes())
+        no_btn.bind("<FocusIn>", lambda _e: _focus_no())
+        yes_btn.bind("<Left>", lambda _e: (_focus_no(), "break")[1])
+        no_btn.bind("<Right>", lambda _e: (_focus_yes(), "break")[1])
+        yes_btn.bind("<Tab>", lambda _e: (_focus_no(), "break")[1])
+        no_btn.bind("<Tab>", lambda _e: (_focus_yes(), "break")[1])
+        yes_btn.bind("<ISO_Left_Tab>", lambda _e: (_focus_no(), "break")[1])
+        no_btn.bind("<ISO_Left_Tab>", lambda _e: (_focus_yes(), "break")[1])
+        yes_btn.bind("<Return>", lambda _e: _finish(True))
+        no_btn.bind("<Return>", lambda _e: _finish(False))
 
         dialog.protocol("WM_DELETE_WINDOW", lambda: _finish(False))
-        dialog.bind("<Return>", lambda _e: _finish(True))
         dialog.bind("<Escape>", lambda _e: _finish(False))
-        yes_btn.focus_set()
+        _focus_yes()
 
         dialog.update_idletasks()
         x = self.root.winfo_x() + (self.root.winfo_width() - dialog.winfo_reqwidth()) // 2
@@ -728,17 +793,21 @@ class FlattradeOrderApp:
 
     def _place_for_row(self, row: OrderRow, side: str) -> None:
         action = "BUY" if side == "B" else "SELL"
+        self.logger.info("UI click row=%s action=%s", row.row_index + 1, action)
         if not self._confirm_action(row, action):
             row.status_var.set(f"{action} cancelled by user")
+            self.logger.info("UI %s aborted by user at confirmation row=%s", action, row.row_index + 1)
             return
 
         error = self._validate_row(row)
         if error:
             messagebox.showerror("Validation Error", error)
+            self.logger.warning("UI %s validation failed row=%s error=%s", action, row.row_index + 1, error)
             return
         contract = self._selected_contract(row, autocorrect=True)
         if not contract:
             messagebox.showerror("Contract Error", "No matching contract for selected strike/option/expiry.")
+            self.logger.error("UI %s failed row=%s reason=no matching contract", action, row.row_index + 1)
             return
 
         instrument = row.instrument_var.get()
@@ -760,6 +829,27 @@ class FlattradeOrderApp:
         for i, chunk in enumerate(chunks, start=1):
             qty_units = chunk * lot_size
             remarks = f"ui_{row.primary_action.lower()}_{i}of{len(chunks)}"
+            request_payload = {
+                "buy_or_sell": buy_sell,
+                "product_type": product,
+                "exchange": exchange,
+                "tradingsymbol": tradingsymbol,
+                "quantity": qty_units,
+                "discloseqty": 0,
+                "price_type": price_type,
+                "price": limit_price,
+                "trigger_price": None,
+                "retention": "DAY",
+                "remarks": remarks,
+            }
+            self.logger.info(
+                "BROKER_REQUEST place_order row=%s action=%s child=%s/%s payload=%s",
+                row.row_index + 1,
+                action,
+                i,
+                len(chunks),
+                self._as_log_text(request_payload),
+            )
             ret = self.api.place_order(
                 buy_or_sell=buy_sell,
                 product_type=product,
@@ -773,15 +863,37 @@ class FlattradeOrderApp:
                 retention="DAY",
                 remarks=remarks,
             )
-            self.logger.info("UI child order response row=%s: %s", row.row_index + 1, ret)
+            self.logger.info(
+                "BROKER_RESPONSE place_order row=%s action=%s child=%s/%s response=%s",
+                row.row_index + 1,
+                action,
+                i,
+                len(chunks),
+                self._as_log_text(ret),
+            )
             if not ret or str(ret.get("stat", "")).lower() != "ok":
                 row.status_var.set(f"{row.primary_action} failed")
+                self.logger.error(
+                    "UI %s failed row=%s child=%s/%s broker_rejected=%s",
+                    action,
+                    row.row_index + 1,
+                    i,
+                    len(chunks),
+                    self._as_log_text(ret),
+                )
                 messagebox.showerror("Order Failed", f"Broker rejected child order {i}: {ret}")
                 return
             order_ids.append(str(ret.get("norenordno")))
 
         row.last_order_ids = order_ids
         row.status_var.set(f"{row.primary_action} success ({len(order_ids)} orders)")
+        self.logger.info(
+            "UI %s success row=%s total_children=%s order_ids=%s",
+            action,
+            row.row_index + 1,
+            len(order_ids),
+            self._as_log_text(order_ids),
+        )
         messagebox.showinfo("Order Placed", f"{row.primary_action} placed.\nOrder IDs: {order_ids}")
 
     def _handle_buy(self, row: OrderRow) -> None:
@@ -791,17 +903,23 @@ class FlattradeOrderApp:
         self._place_for_row(row, "S")
 
     def _handle_cancel(self, row: OrderRow) -> None:
+        self.logger.info("UI click row=%s action=CANCEL", row.row_index + 1)
         if not self._confirm_action(row, "CANCEL"):
             row.status_var.set("Cancel aborted by user")
+            self.logger.info("UI CANCEL aborted by user at confirmation row=%s", row.row_index + 1)
             return
 
         contract = self._selected_contract(row, autocorrect=True)
         if not contract:
             messagebox.showerror("Cancel Error", "No matching contract selected to cancel.")
+            self.logger.error("UI CANCEL failed row=%s reason=no matching contract", row.row_index + 1)
             return
         tsym = contract["TradingSymbol"]
+        self.logger.info("UI CANCEL row=%s target_tradingsymbol=%s", row.row_index + 1, tsym)
         book = self.api.get_order_book()
+        self.logger.info("BROKER_RESPONSE get_order_book row=%s response=%s", row.row_index + 1, self._as_log_text(book))
         if not book:
+            self.logger.info("UI CANCEL row=%s no open orders in broker order book", row.row_index + 1)
             messagebox.showinfo("Cancel", "No open orders found.")
             return
 
@@ -816,20 +934,33 @@ class FlattradeOrderApp:
                     cancellable.append(str(orderno))
 
         if not cancellable:
+            self.logger.info("UI CANCEL row=%s no cancellable orders for %s", row.row_index + 1, tsym)
             messagebox.showinfo("Cancel", f"No open orders for {tsym}.")
             return
 
         cancelled = []
         failed = []
         for orderno in cancellable:
+            self.logger.info("BROKER_REQUEST cancel_order row=%s orderno=%s", row.row_index + 1, orderno)
             ret = self.api.cancel_order(orderno=orderno)
-            self.logger.info("UI cancel response row=%s orderno=%s ret=%s", row.row_index + 1, orderno, ret)
+            self.logger.info(
+                "BROKER_RESPONSE cancel_order row=%s orderno=%s response=%s",
+                row.row_index + 1,
+                orderno,
+                self._as_log_text(ret),
+            )
             if ret and str(ret.get("stat", "")).lower() == "ok":
                 cancelled.append(orderno)
             else:
                 failed.append((orderno, ret))
 
         row.status_var.set(f"Cancel done: {len(cancelled)} ok, {len(failed)} failed")
+        self.logger.info(
+            "UI CANCEL result row=%s cancelled=%s failed=%s",
+            row.row_index + 1,
+            self._as_log_text(cancelled),
+            self._as_log_text(failed),
+        )
         if failed:
             messagebox.showwarning("Cancel Partial", f"Cancelled: {cancelled}\nFailed: {failed}")
         else:
