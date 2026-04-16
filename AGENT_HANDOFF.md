@@ -290,3 +290,90 @@ If another agent continues work, they should:
 4. Validate any order-flow changes against `logs/YYYYMMDD.txt`.
 5. Keep `Testing/` scripts for debug parity.
 
+---
+
+## 14) Recent Updates (March 2026)
+
+This section records important behavior changes made after the earlier handoff.
+
+### 14.1 Quantity/Lots UX (Row Input)
+
+- Row input is now **Qty-based** (units), with derived lots.
+- Header label format changed to:
+  - `Qty (Lots: X)`
+- Rounding behavior:
+  - typed qty is interpreted to nearest lots by current contract lot size
+  - example for NIFTY lot size 65:
+    - `130` -> `Lots: 2`
+    - `150` -> nearest `Lots: 2`
+    - Up/Down moves by one lot step (`130 <-> 195`)
+- Freeze text now shows both:
+  - `Freeze split: Qty <qty> (Lots: <lots>)`
+
+### 14.2 Confirmation Dialog UX
+
+- Confirmation detail is now on a single line without field labels.
+- Format:
+  - Limit order: `NIFTY, 02-MAR-2026, 25300CE, 65(Lots:1) @ 0.2`
+  - Market order: `NIFTY, 02-MAR-2026, 25300CE, 65(Lots:1)`
+- Buttons changed:
+  - `No` on left, `Yes` on right
+  - default highlight/focus on `Yes`
+  - keyboard navigation improved (Left/Right/Tab/Enter/Esc)
+
+### 14.3 Button Focus Visibility
+
+- `BUY/SELL/CANCEL` buttons use a stronger focus style (`Panel.TButton`) for better Tab-navigation visibility.
+
+### 14.4 Limit Price Behavior
+
+- `Limit Price` is a spinbox with configurable step:
+  - `LIMIT_PRICE_STEP = 0.05` (default)
+- `Lots/Qty` and `Limit Price` fields remain white, not row-highlight colored.
+
+### 14.5 Order and Broker Logging
+
+`app_ui.py` now logs full order/cancel lifecycle in `logs/YYYYMMDD.txt`:
+
+- UI click event (`BUY`/`SELL`/`CANCEL`)
+- broker request payload before order/cancel calls
+- full raw broker response for:
+  - `place_order`
+  - `get_order_book`
+  - `cancel_order`
+- explicit success/failure summaries and order IDs
+- user-abort and validation-failure paths
+
+### 14.6 Login/Auth Logging
+
+Auth/session logging was expanded in `token_login.py` and `trade_actions.py`:
+
+- endpoint URLs (auth + trading host/ws)
+- auth request payloads and responses for:
+  - `/auth/session`
+  - `/ftauth`
+  - `/trade/apitoken`
+- redirect URL, extracted request code, set_session responses
+- generated/refreshed/session token values
+
+### 14.7 Startup Token Policy (Current)
+
+- Current startup policy is back to **fresh token every UI launch**.
+- In `_login()` (`app_ui.py`):
+  - clears `session_token` and `session_generated_at`
+  - saves creds
+  - runs `login_from_creds(...)` to generate and use a new token
+
+### 14.8 Critical Auth Parser Fix
+
+- `token_login._extract_request_code()` was updated to handle malformed redirect query shapes seen from broker auth, including:
+  - `??code=...`
+  - fallback regex extraction for non-standard query strings
+- This specifically addresses failures like:
+  - `Could not find request_code/request_token in RedirectURL`
+
+### 14.9 Security Note
+
+- Logs now intentionally include sensitive data (tokens, auth payloads, some credentials-derived values) for debugging.
+- Treat `logs/*.txt` as sensitive; do not share externally without redaction.
+

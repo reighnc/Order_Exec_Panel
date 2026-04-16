@@ -1,6 +1,7 @@
 import argparse
 import hashlib
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
@@ -19,11 +20,17 @@ APITOKEN_URL = f"{AUTH_API_BASE}/trade/apitoken"
 
 def _extract_request_code(redirect_url: str) -> str:
     parsed = urlparse(redirect_url)
-    query = parse_qs(parsed.query)
-    for key in ("request_code", "request_token", "code"):
+    raw_query = (parsed.query or "").lstrip("?")
+    query = parse_qs(raw_query)
+    for key in ("request_code", "request_token", "code", "?request_code", "?request_token", "?code"):
         value = query.get(key)
         if value and value[0]:
-            return value[0]
+            return str(value[0]).strip()
+
+    # Fallback for non-standard redirect query formatting.
+    match = re.search(r"(?:[?&]|^)(?:request_code|request_token|code)=([^&]+)", redirect_url)
+    if match:
+        return match.group(1).strip()
     return ""
 
 
@@ -65,14 +72,23 @@ def generate_session_token(creds: Dict[str, Any], logger: Any) -> Dict[str, Any]
         "Referer": f"https://auth.flattrade.in/?app_key={api_key}",
         "User-Agent": "Mozilla/5.0",
     }
+    logger.info(
+        "AUTH_ENDPOINTS auth_base=%s session_url=%s ftauth_url=%s apitoken_url=%s",
+        AUTH_API_BASE,
+        SESSION_URL,
+        FTAUTH_URL,
+        APITOKEN_URL,
+    )
+    logger.info("AUTH_REFERER %s", auth_headers["Referer"])
 
     logger.info("Step 1/4: requesting auth session id")
     sid_resp = requests.post(SESSION_URL, headers=auth_headers, timeout=20)
     sid_resp.raise_for_status()
     sid = sid_resp.text.strip()
+    logger.info("AUTH_RESPONSE /auth/session status=%s body=%s", sid_resp.status_code, sid_resp.text)
     if not sid:
         raise RuntimeError("Empty SID from auth/session")
-    logger.info("Received SID: %s", _mask(sid))
+    logger.info("Received SID (full): %s", sid)
 
     logger.info("Step 2/4: authenticating at /ftauth")
     login_payload = {
@@ -88,23 +104,24 @@ def generate_session_token(creds: Dict[str, Any], logger: Any) -> Dict[str, Any]
         "Source": "AUTHPAGE",
         "Rd": "",
     }
+    logger.info("AUTH_REQUEST /ftauth payload=%s", login_payload)
     login_resp = requests.post(FTAUTH_URL, json=login_payload, headers=auth_headers, timeout=20)
     login_resp.raise_for_status()
     login_data = login_resp.json()
-    logger.info("ftauth status: %s", login_resp.status_code)
+    logger.info("AUTH_RESPONSE /ftauth status=%s body=%s", login_resp.status_code, login_data)
     if login_data.get("emsg"):
         raise RuntimeError(f"/ftauth failed: {login_data.get('emsg')}")
 
     redirect_url = str(login_data.get("RedirectURL", "")).strip()
     if not redirect_url:
         raise RuntimeError("No RedirectURL returned by /ftauth")
-    logger.info("Received RedirectURL.")
+    logger.info("Received RedirectURL (full): %s", redirect_url)
 
     logger.info("Step 3/4: extracting request code")
     request_code = _extract_request_code(redirect_url)
     if not request_code:
         raise RuntimeError("Could not find request_code/request_token in RedirectURL")
-    logger.info("Extracted request_code: %s", _mask(request_code))
+    logger.info("Extracted request_code (full): %s", request_code)
 
     logger.info("Step 4/4: exchanging request code for API token")
     sec_hash = _compute_security_hash(api_key, request_code, api_secret)
@@ -113,9 +130,11 @@ def generate_session_token(creds: Dict[str, Any], logger: Any) -> Dict[str, Any]
         "request_code": request_code,
         "api_secret": sec_hash,
     }
+    logger.info("AUTH_REQUEST /trade/apitoken payload=%s", token_payload)
     token_resp = requests.post(APITOKEN_URL, json=token_payload, timeout=20)
     token_resp.raise_for_status()
     token_data = token_resp.json()
+    logger.info("AUTH_RESPONSE /trade/apitoken status=%s body=%s", token_resp.status_code, token_data)
     token_stat = str(token_data.get("status", token_data.get("stat", ""))).lower()
     if token_stat != "ok":
         raise RuntimeError(f"/trade/apitoken failed: {token_data}")
@@ -123,6 +142,7 @@ def generate_session_token(creds: Dict[str, Any], logger: Any) -> Dict[str, Any]
     token = str(token_data.get("token", "")).strip()
     if not token:
         raise RuntimeError("Token missing in /trade/apitoken response")
+    logger.info("Generated API token (full): %s", token)
     return token_data
 
 
@@ -149,6 +169,7 @@ def main() -> None:
     token_data = generate_session_token(creds, logger)
     token = str(token_data["token"])
     _save_session_token(creds_path, creds, token)
+    logger.info("Saved session token to creds (full): %s", token)
     logger.info("Session token generated and saved to creds.txt")
     print("TOKEN GENERATED AND SAVED")
 

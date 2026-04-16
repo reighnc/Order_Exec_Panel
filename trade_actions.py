@@ -119,6 +119,11 @@ def login_from_creds(
     logger: logging.Logger,
     creds_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
+    logger.info(
+        "TRADING_ENDPOINTS host=%s websocket=%s",
+        "https://piconnect.flattrade.in/PiConnectTP/",
+        "wss://piconnect.flattrade.in/PiConnectWSTp/",
+    )
     username = str(creds.get("username", "")).strip()
     password = str(creds.get("password", "")).strip()
 
@@ -145,13 +150,16 @@ def login_from_creds(
             creds["session_generated_at"] = datetime.now().isoformat(timespec="seconds")
             save_credentials(creds_path, creds)
             session_token = new_token
+            logger.info("Generated session token (full): %s", new_token)
             logger.info("Generated and saved new session token.")
         except Exception as exc:
             logger.warning("Auto token generation (missing-token path) failed: %s", exc)
 
     if session_token:
         logger.info("Using session token from creds.")
+        logger.info("Session token from creds (full): %s", session_token)
         result = api.set_session(userid=username, password="", usertoken=session_token)
+        logger.info("set_session response (full): %s", result)
         if result:
             logger.info("Session set result: %s", result)
             return {"stat": "Ok", "mode": "set_session", "result": result}
@@ -170,8 +178,10 @@ def login_from_creds(
                 creds["session_token"] = new_token
                 creds["session_generated_at"] = datetime.now().isoformat(timespec="seconds")
                 save_credentials(creds_path, creds)
+                logger.info("Refreshed session token (full): %s", new_token)
 
                 retry_result = api.set_session(userid=username, password="", usertoken=new_token)
+                logger.info("set_session retry response (full): %s", retry_result)
                 if retry_result:
                     logger.info("Session refresh successful.")
                     return {"stat": "Ok", "mode": "set_session_refreshed", "result": retry_result}
@@ -233,9 +243,10 @@ def login_from_creds(
                     )
                 except Exception as exc:
                     last_error = str(exc)
+                    logger.warning("Login call exception for vc=%s: %s", _mask_secret(vc), exc)
                     continue
                 if response:
-                    logger.info("Login successful.")
+                    logger.info("Login successful. Full response: %s", response)
                     return response
 
     message = "Login failed. Add explicit vendor_code/vc/imei in creds.txt or use session_token."

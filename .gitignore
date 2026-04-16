@@ -1,5 +1,6 @@
 # Local secrets and session data
 creds.txt
+creds.example.txt
 
 # Python cache
 __pycache__/
