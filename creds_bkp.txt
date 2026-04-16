@@ -1,9 +1,0 @@
-{
-  "username": "FZ02723",
-  "password": "Reiner@21",
-  "api_key": "d9d7bada756f435eb7f7374b689ee505",
-  "api_secret": "2024.e585d54a2d6346d59ae92fb7aaca41e2ca35b6240d449c1f",
-  "2fa": "2ASKG6IOKK6LT522M7N24F2XASC33I55",
-  "session_token": "",
-  "session_generated_at": ""
-}
