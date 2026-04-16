@@ -111,7 +111,10 @@ def _public_index_spot_map() -> Dict[str, float]:
 
 
 def _search_token(api: FlattradeApi, exchange: str, search_text: str) -> Optional[str]:
-    resp = api.searchscrip(exchange=exchange, searchtext=search_text)
+    try:
+        resp = api.searchscrip(exchange=exchange, searchtext=search_text)
+    except Exception:
+        return None
     if not resp or "values" not in resp:
         return None
     for row in resp["values"]:
@@ -122,10 +125,20 @@ def _search_token(api: FlattradeApi, exchange: str, search_text: str) -> Optiona
     return first.get("token")
 
 
+def _safe_get_quote(api: FlattradeApi, exchange: str, token: str) -> Optional[dict]:
+    try:
+        quote = api.get_quotes(exchange=exchange, token=token)
+    except Exception:
+        return None
+    if isinstance(quote, dict):
+        return quote
+    return None
+
+
 def get_spot_ltp(api: FlattradeApi, instrument: str) -> Optional[float]:
     if instrument in SPOT_TOKEN_MAP:
         exch, token = SPOT_TOKEN_MAP[instrument]
-        quote = api.get_quotes(exchange=exch, token=token)
+        quote = _safe_get_quote(api, exch, token)
         if quote:
             value = _safe_float(quote.get("lp"))
             if value is not None:
@@ -136,7 +149,7 @@ def get_spot_ltp(api: FlattradeApi, instrument: str) -> Optional[float]:
         if not token:
             exch = None
         else:
-            quote = api.get_quotes(exchange=exch, token=token)
+            quote = _safe_get_quote(api, exch, token)
             if quote:
                 value = _safe_float(quote.get("lp"))
                 if value is not None:

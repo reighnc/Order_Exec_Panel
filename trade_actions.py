@@ -20,10 +20,13 @@ class _ValueWrapper:
 
 
 class FlattradeApi(NorenApi):
+    HOST_URL = "https://piconnect.flattrade.in/PiConnectAPI/"
+    WS_URL = "wss://piconnect.flattrade.in/PiConnectWSAPI/"
+
     def __init__(self) -> None:
         super().__init__(
-            host="https://piconnect.flattrade.in/PiConnectTP/",
-            websocket="wss://piconnect.flattrade.in/PiConnectWSTp/",
+            host=self.HOST_URL,
+            websocket=self.WS_URL,
         )
 
 
@@ -121,8 +124,8 @@ def login_from_creds(
 ) -> Dict[str, Any]:
     logger.info(
         "TRADING_ENDPOINTS host=%s websocket=%s",
-        "https://piconnect.flattrade.in/PiConnectTP/",
-        "wss://piconnect.flattrade.in/PiConnectWSTp/",
+        FlattradeApi.HOST_URL,
+        FlattradeApi.WS_URL,
     )
     username = str(creds.get("username", "")).strip()
     password = str(creds.get("password", "")).strip()

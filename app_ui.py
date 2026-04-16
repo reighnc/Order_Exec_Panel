@@ -850,19 +850,33 @@ class FlattradeOrderApp:
                 len(chunks),
                 self._as_log_text(request_payload),
             )
-            ret = self.api.place_order(
-                buy_or_sell=buy_sell,
-                product_type=product,
-                exchange=exchange,
-                tradingsymbol=tradingsymbol,
-                quantity=qty_units,
-                discloseqty=0,
-                price_type=price_type,
-                price=limit_price,
-                trigger_price=None,
-                retention="DAY",
-                remarks=remarks,
-            )
+            try:
+                ret = self.api.place_order(
+                    buy_or_sell=buy_sell,
+                    product_type=product,
+                    exchange=exchange,
+                    tradingsymbol=tradingsymbol,
+                    quantity=qty_units,
+                    discloseqty=0,
+                    price_type=price_type,
+                    price=limit_price,
+                    trigger_price=None,
+                    retention="DAY",
+                    remarks=remarks,
+                )
+            except Exception as exc:
+                self.logger.exception(
+                    "BROKER_EXCEPTION place_order row=%s action=%s child=%s/%s payload=%s error=%s",
+                    row.row_index + 1,
+                    action,
+                    i,
+                    len(chunks),
+                    self._as_log_text(request_payload),
+                    exc,
+                )
+                row.status_var.set(f"{row.primary_action} failed")
+                messagebox.showerror("Order Failed", f"Broker exception in child order {i}: {exc}")
+                return
             self.logger.info(
                 "BROKER_RESPONSE place_order row=%s action=%s child=%s/%s response=%s",
                 row.row_index + 1,
@@ -916,7 +930,12 @@ class FlattradeOrderApp:
             return
         tsym = contract["TradingSymbol"]
         self.logger.info("UI CANCEL row=%s target_tradingsymbol=%s", row.row_index + 1, tsym)
-        book = self.api.get_order_book()
+        try:
+            book = self.api.get_order_book()
+        except Exception as exc:
+            self.logger.exception("BROKER_EXCEPTION get_order_book row=%s error=%s", row.row_index + 1, exc)
+            messagebox.showerror("Cancel Error", f"Broker exception while fetching order book: {exc}")
+            return
         self.logger.info("BROKER_RESPONSE get_order_book row=%s response=%s", row.row_index + 1, self._as_log_text(book))
         if not book:
             self.logger.info("UI CANCEL row=%s no open orders in broker order book", row.row_index + 1)
@@ -942,7 +961,17 @@ class FlattradeOrderApp:
         failed = []
         for orderno in cancellable:
             self.logger.info("BROKER_REQUEST cancel_order row=%s orderno=%s", row.row_index + 1, orderno)
-            ret = self.api.cancel_order(orderno=orderno)
+            try:
+                ret = self.api.cancel_order(orderno=orderno)
+            except Exception as exc:
+                self.logger.exception(
+                    "BROKER_EXCEPTION cancel_order row=%s orderno=%s error=%s",
+                    row.row_index + 1,
+                    orderno,
+                    exc,
+                )
+                failed.append((orderno, {"exception": str(exc)}))
+                continue
             self.logger.info(
                 "BROKER_RESPONSE cancel_order row=%s orderno=%s response=%s",
                 row.row_index + 1,

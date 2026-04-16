@@ -42,10 +42,10 @@ Test-only files moved under `Testing/`:
 
 ### 3.1 Host selection
 
-Project uses **PiConnectTP** (not PiConnectAPI), because tokens generated through current flow validate on TP endpoints.
+Project currently uses **PiConnectAPI** (V2-aligned) for order/quote/session calls.
 
-- Host: `https://piconnect.flattrade.in/PiConnectTP/`
-- Websocket: `wss://piconnect.flattrade.in/PiConnectWSTp/`
+- Host: `https://piconnect.flattrade.in/PiConnectAPI/`
+- Websocket: `wss://piconnect.flattrade.in/PiConnectWSAPI/`
 
 ### 3.2 Startup token behavior
 
@@ -376,4 +376,19 @@ Auth/session logging was expanded in `token_login.py` and `trade_actions.py`:
 
 - Logs now intentionally include sensitive data (tokens, auth payloads, some credentials-derived values) for debugging.
 - Treat `logs/*.txt` as sensitive; do not share externally without redaction.
+
+### 14.10 V2 Resilience Fixes
+
+- `market_cache.get_spot_ltp(...)` now uses safe wrappers around `searchscrip/get_quotes` so empty/non-JSON broker responses do not crash startup.
+- If quote calls fail, app falls back to public index LTP source (existing fallback path).
+- `app_ui.py` order/cancel calls are now exception-safe:
+  - `place_order`, `get_order_book`, `cancel_order` exceptions are caught and logged.
+  - UI now shows a controlled error popup instead of a Tkinter crash.
+
+### 14.11 Credentials Backup File Handling
+
+- `creds_bkp.txt` is in `.gitignore`.
+- File was tracked earlier and has been removed from git index using:
+  - `git rm --cached creds_bkp.txt`
+- This keeps local backup file on disk but prevents future commits/pushes of it.
 
